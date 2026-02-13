@@ -1,3 +1,5 @@
+import StoryOverlay from "@/components/StoryOverlay";
+import { GAME_CONFIG } from "@/components/GameConfig";
 "use client";
 import React, { useState, Suspense, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
