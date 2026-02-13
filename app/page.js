@@ -1,142 +1,109 @@
 "use client";
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, Suspense, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, PerspectiveCamera, Float, Text, MeshDistortMaterial, Stars } from "@react-three/drei";
+import * as THREE from "three";
 
-export default function YaoyaoGame() {
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    import("phaser").then((Phaser) => {
-      const config = {
-        type: Phaser.AUTO,
-        parent: "game-container",
-        width: window.innerWidth,
-        height: window.innerHeight,
-        backgroundColor: "#050510",
-        physics: {
-          default: "arcade",
-          arcade: { debug: false }, // ألغينا الجاذبية الثابتة لنجعل الحركة حرة (تجول)
-        },
-        scene: { preload, create, update },
-      };
-
-      const game = new Phaser.Game(config);
-
-      let player;
-      let crystals;
-      let score = 0;
-      let scoreText;
-      let particles;
-
-      function preload() {
-        // تحميل الأصول
-        this.load.image('cat', 'https://labs.phaser.io/assets/sprites/orange-cat1.png');
-        this.load.image('crystal', 'https://labs.phaser.io/assets/sprites/gem.png');
-        this.load.image('particle', 'https://labs.phaser.io/assets/particles/blue.png');
-      }
-
-      function create() {
-        // 1. نظام الجزيئات (Particles) لإعطاء حيوية
-        particles = this.add.particles(0, 0, 'particle', {
-          speed: 100,
-          scale: { start: 0.2, end: 0 },
-          blendMode: 'ADD',
-          emitting: false
-        });
-
-        // 2. القطة Yaoyao مع تحسين المظهر
-        player = this.physics.add.sprite(window.innerWidth / 2, window.innerHeight / 2, 'cat').setScale(1.2);
-        player.setCollideWorldBounds(true);
-        player.setDrag(1000); // تعطي شعور بالنعومة عند التوقف
-
-        // 3. الأهداف (كريستالات)
-        crystals = this.physics.add.group();
-        spawnCrystal.call(this);
-
-        // 4. نظام الحركة باللمس (المتابعة)
-        this.input.on('pointermove', (pointer) => {
-          if (pointer.isDown) {
-            // القطة تتحرك باتجاه الإصبع بسلاسة
-            this.physics.moveToObject(player, pointer, 400);
-            particles.emitParticleAt(player.x, player.y);
-          }
-        });
-
-        // 5. تفاعل الجمع
-        this.physics.add.overlap(player, crystals, collectCrystal, null, this);
-
-        // 6. واجهة المستخدم
-        scoreText = this.add.text(20, 20, 'Crystals: 0/10', { 
-          fontSize: '24px', 
-          fill: '#00ffff',
-          fontStyle: 'bold'
-        }).setScrollFactor(0);
-      }
-
-      function spawnCrystal() {
-        const x = Phaser.Math.Between(50, window.innerWidth - 50);
-        const y = Phaser.Math.Between(50, window.innerHeight - 50);
-        const crystal = crystals.create(x, y, 'crystal').setScale(0.8);
-        crystal.setTint(0x00ffcc);
-        
-        // تأثير نبض للكريستال
-        this.tweens.add({
-          targets: crystal,
-          scale: 1.1,
-          duration: 800,
-          yoyo: true,
-          loop: -1
-        });
-      }
-
-      function collectCrystal(player, crystal) {
-        crystal.destroy();
-        score += 1;
-        scoreText.setText(`Crystals: ${score}/10`);
-        
-        // تأثير بصري عند الجمع
-        this.cameras.main.shake(100, 0.01);
-        
-        if (score < 10) {
-          spawnCrystal.call(this);
-        } else {
-          showWinMessage.call(this);
-        }
-      }
-
-      function showWinMessage() {
-        this.add.text(window.innerWidth/2, window.innerHeight/2, 'YAOYAO IS HOME! 🐾\nMission Complete', {
-          fontSize: '32px',
-          fill: '#00ffcc',
-          align: 'center',
-          backgroundColor: '#000000aa'
-        }).setOrigin(0.5);
-        this.physics.pause();
-      }
-
-      function update() {
-        // دوران بسيط للقطة باتجاه الحركة
-        if (player.body.velocity.x !== 0) {
-            player.flipX = player.body.velocity.x < 0;
-        }
-      }
-
-      setLoading(false);
-      return () => game.destroy(true);
-    });
-  }, []);
+// كائن القطة الثلاثي الأبعاد (Yaoyao)
+function Player({ targetPoint }) {
+  const mesh = useRef();
+  
+  useFrame((state) => {
+    if (targetPoint) {
+      // حركة سلسة جداً باتجاه اللمس (Lerp)
+      mesh.current.position.lerp(new THREE.Vector3(targetPoint.x, 0.5, targetPoint.z), 0.1);
+    }
+  });
 
   return (
-    <main className="fixed inset-0 bg-[#050510] overflow-hidden touch-none">
-      {loading && (
-        <div className="flex flex-col items-center justify-center h-full text-cyan-400 font-mono">
-          <div className="w-16 h-16 border-4 border-t-transparent border-cyan-400 rounded-full animate-spin mb-4"></div>
-          INITIALIZING YAOYAO WORLD...
+    <mesh ref={mesh} position={[0, 0.5, 0]}>
+      <sphereGeometry args={[0.5, 32, 32]} />
+      <MeshDistortMaterial color="#00ffcc" speed={2} distort={0.4} radius={1} />
+      <pointLight intensity={2} distance={5} color="#00ffcc" />
+    </mesh>
+  );
+}
+
+// الكريستالات المطلوب جمعها
+function Crystal({ position }) {
+  return (
+    <Float speed={5} rotationIntensity={2} floatIntensity={2}>
+      <mesh position={position}>
+        <octahedronGeometry args={[0.3, 0]} />
+        <meshStandardMaterial color="#ff00bb" emissive="#ff00bb" emissiveIntensity={2} />
+      </mesh>
+    </Float>
+  );
+}
+
+export default function Yaoyao3D() {
+  const [gameStarted, setGameStarted] = useState(false);
+  const [targetPoint, setTargetPoint] = useState(new THREE.Vector3(0, 0, 0));
+
+  const handlePointerMove = (e) => {
+    if (gameStarted) {
+      // تحويل إحداثيات اللمس إلى عالم 3D
+      const x = (e.clientX / window.innerWidth) * 10 - 5;
+      const z = (e.clientY / window.innerHeight) * 10 - 5;
+      setTargetPoint(new THREE.Vector3(x, 0, z));
+    }
+  };
+
+  return (
+    <div className="w-full h-screen bg-black overflow-hidden touch-none" onPointerMove={handlePointerMove}>
+      {/* ملحوظة المبرمج */}
+      <div className="absolute top-2 right-4 z-50 text-white/30 text-[10px] font-mono">
+        Made by alkorgli
+      </div>
+
+      {!gameStarted ? (
+        // القائمة الرئيسية
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
+          <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 mb-8 animate-pulse">
+            YAOYAO 3D
+          </h1>
+          <button 
+            onClick={() => setGameStarted(true)}
+            className="px-10 py-4 bg-transparent border-2 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black transition-all duration-300 font-bold tracking-widest text-xl rounded-full uppercase"
+          >
+            Start Mission
+          </button>
+          <p className="mt-6 text-white/50 text-sm italic">Guide the cat through the digital void</p>
+        </div>
+      ) : (
+        // واجهة اللعبة أثناء اللعب
+        <div className="absolute top-10 left-10 z-40 text-cyan-400 font-mono text-xl pointer-events-none">
+          MISSION: COLLECT ENERGY
         </div>
       )}
-      <div id="game-container" className="w-full h-full" />
-      <div className="absolute bottom-10 w-full text-center text-white/50 text-sm pointer-events-none">
-        إلمس الشاشة وحرك إصبعك لتقود Yaoyao
-      </div>
-    </main>
+
+      {/* محرك الـ 3D */}
+      <Canvas shadows>
+        <PerspectiveCamera makeDefault position={[0, 10, 10]} fov={50} />
+        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+        <ambientLight intensity={0.2} />
+        <pointLight position={[10, 10, 10]} intensity={1.5} />
+        
+        <Suspense fallback={null}>
+          {gameStarted && (
+            <>
+              <Player targetPoint={targetPoint} />
+              <Crystal position={[3, 0.5, -2]} />
+              <Crystal position={[-4, 0.5, 3]} />
+              <Crystal position={[0, 0.5, -5]} />
+              
+              {/* الأرضية النيون */}
+              <gridHelper args={[20, 20, "#222", "#00ffcc"]} />
+              <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+                <planeGeometry args={[20, 20]} />
+                <meshStandardMaterial color="#050505" />
+              </mesh>
+            </>
+          )}
+        </Suspense>
+
+        <OrbitControls enableZoom={false} maxPolarAngle={Math.PI / 2.5} />
+      </Canvas>
+    </div>
   );
 }
