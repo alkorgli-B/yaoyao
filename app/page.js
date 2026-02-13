@@ -2,111 +2,121 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 export default function YaoyaoGame() {
-  const gameContainerRef = useRef(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // تحميل Phaser ديناميكياً لتجنب أخطاء SSR في Next.js
     import("phaser").then((Phaser) => {
       const config = {
         type: Phaser.AUTO,
         parent: "game-container",
         width: window.innerWidth,
         height: window.innerHeight,
-        backgroundColor: "#0a0a0a",
+        backgroundColor: "#050510",
         physics: {
           default: "arcade",
-          arcade: { gravity: { y: 2000 }, debug: false },
+          arcade: { debug: false }, // ألغينا الجاذبية الثابتة لنجعل الحركة حرة (تجول)
         },
-        scene: {
-          preload: preload,
-          create: create,
-          update: update,
-        },
+        scene: { preload, create, update },
       };
 
       const game = new Phaser.Game(config);
 
-      function preload() {
-        // شخصية القطة Yaoyao (باستخدام Sprite جاهز من Phaser للسرعة)
-        this.load.image('cat', 'https://labs.phaser.io/assets/sprites/orange-cat1.png');
-      }
-
       let player;
-      let obstacles;
+      let crystals;
       let score = 0;
       let scoreText;
-      let isGameOver = false;
+      let particles;
+
+      function preload() {
+        // تحميل الأصول
+        this.load.image('cat', 'https://labs.phaser.io/assets/sprites/orange-cat1.png');
+        this.load.image('crystal', 'https://labs.phaser.io/assets/sprites/gem.png');
+        this.load.image('particle', 'https://labs.phaser.io/assets/particles/blue.png');
+      }
 
       function create() {
-        // نيون باكجراوند بسيط
-        const graphics = this.add.graphics();
-        graphics.lineStyle(2, 0x00ffff, 0.3);
-        for (let i = 0; i < window.innerWidth; i += 40) {
-          graphics.moveTo(i, 0);
-          graphics.lineTo(i, window.innerHeight);
-        }
-        graphics.strokePath();
+        // 1. نظام الجزيئات (Particles) لإعطاء حيوية
+        particles = this.add.particles(0, 0, 'particle', {
+          speed: 100,
+          scale: { start: 0.2, end: 0 },
+          blendMode: 'ADD',
+          emitting: false
+        });
 
-        // القطة Yaoyao
-        player = this.physics.add.sprite(80, window.innerHeight / 2, 'cat').setScale(1.5);
+        // 2. القطة Yaoyao مع تحسين المظهر
+        player = this.physics.add.sprite(window.innerWidth / 2, window.innerHeight / 2, 'cat').setScale(1.2);
         player.setCollideWorldBounds(true);
-        player.setBounce(0.1);
+        player.setDrag(1000); // تعطي شعور بالنعومة عند التوقف
 
-        // التحكم باللمس للموبايل
-        this.input.on("pointerdown", () => {
-          if (player.body.blocked.down || player.body.touching.down) {
-            player.setVelocityY(-900);
+        // 3. الأهداف (كريستالات)
+        crystals = this.physics.add.group();
+        spawnCrystal.call(this);
+
+        // 4. نظام الحركة باللمس (المتابعة)
+        this.input.on('pointermove', (pointer) => {
+          if (pointer.isDown) {
+            // القطة تتحرك باتجاه الإصبع بسلاسة
+            this.physics.moveToObject(player, pointer, 400);
+            particles.emitParticleAt(player.x, player.y);
           }
         });
 
-        // العوائق
-        obstacles = this.physics.add.group();
-        this.time.addEvent({
-          delay: 1200,
-          callback: () => {
-            if (!isGameOver) {
-              const obs = obstacles.create(window.innerWidth, window.innerHeight - 60, 'cat');
-              obs.setTint(0xff0055);
-              obs.setVelocityX(-500 - (score / 10)); // السرعة تزداد مع الوقت
-              obs.setScale(1.2);
-            }
-          },
-          loop: true
-        });
+        // 5. تفاعل الجمع
+        this.physics.add.overlap(player, crystals, collectCrystal, null, this);
 
-        // واجهة المستخدم
-        scoreText = this.add.text(20, 20, 'Yaoyao Score: 0', { 
-          fontSize: '28px', 
-          fill: '#00ffcc',
-          fontFamily: 'Arial Black'
-        });
+        // 6. واجهة المستخدم
+        scoreText = this.add.text(20, 20, 'Crystals: 0/10', { 
+          fontSize: '24px', 
+          fill: '#00ffff',
+          fontStyle: 'bold'
+        }).setScrollFactor(0);
+      }
 
-        // نظام الاصطدام
-        this.physics.add.overlap(player, obstacles, () => {
-          this.physics.pause();
-          isGameOver = true;
-          player.setTint(0xff0000);
-          
-          const retryText = this.add.text(window.innerWidth/2, window.innerHeight/2, 'GAME OVER\nTap to Restart', {
-            fontSize: '40px',
-            fill: '#fff',
-            align: 'center',
-            backgroundColor: '#ff0055'
-          }).setOrigin(0.5).setInteractive();
-
-          retryText.on('pointerdown', () => {
-            isGameOver = false;
-            score = 0;
-            this.scene.restart();
-          });
+      function spawnCrystal() {
+        const x = Phaser.Math.Between(50, window.innerWidth - 50);
+        const y = Phaser.Math.Between(50, window.innerHeight - 50);
+        const crystal = crystals.create(x, y, 'crystal').setScale(0.8);
+        crystal.setTint(0x00ffcc);
+        
+        // تأثير نبض للكريستال
+        this.tweens.add({
+          targets: crystal,
+          scale: 1.1,
+          duration: 800,
+          yoyo: true,
+          loop: -1
         });
       }
 
+      function collectCrystal(player, crystal) {
+        crystal.destroy();
+        score += 1;
+        scoreText.setText(`Crystals: ${score}/10`);
+        
+        // تأثير بصري عند الجمع
+        this.cameras.main.shake(100, 0.01);
+        
+        if (score < 10) {
+          spawnCrystal.call(this);
+        } else {
+          showWinMessage.call(this);
+        }
+      }
+
+      function showWinMessage() {
+        this.add.text(window.innerWidth/2, window.innerHeight/2, 'YAOYAO IS HOME! 🐾\nMission Complete', {
+          fontSize: '32px',
+          fill: '#00ffcc',
+          align: 'center',
+          backgroundColor: '#000000aa'
+        }).setOrigin(0.5);
+        this.physics.pause();
+      }
+
       function update() {
-        if (!isGameOver) {
-          score += 1;
-          scoreText.setText('Yaoyao Score: ' + Math.floor(score / 10));
+        // دوران بسيط للقطة باتجاه الحركة
+        if (player.body.velocity.x !== 0) {
+            player.flipX = player.body.velocity.x < 0;
         }
       }
 
@@ -116,13 +126,17 @@ export default function YaoyaoGame() {
   }, []);
 
   return (
-    <main className="fixed inset-0 bg-black overflow-hidden touch-none">
+    <main className="fixed inset-0 bg-[#050510] overflow-hidden touch-none">
       {loading && (
-        <div className="flex items-center justify-center h-full text-cyan-400 animate-pulse font-mono">
-          LOADING YAOYAO ENGINE...
+        <div className="flex flex-col items-center justify-center h-full text-cyan-400 font-mono">
+          <div className="w-16 h-16 border-4 border-t-transparent border-cyan-400 rounded-full animate-spin mb-4"></div>
+          INITIALIZING YAOYAO WORLD...
         </div>
       )}
-      <div id="game-container" ref={gameContainerRef} className="w-full h-full" />
+      <div id="game-container" className="w-full h-full" />
+      <div className="absolute bottom-10 w-full text-center text-white/50 text-sm pointer-events-none">
+        إلمس الشاشة وحرك إصبعك لتقود Yaoyao
+      </div>
     </main>
   );
 }
