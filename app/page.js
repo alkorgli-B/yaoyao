@@ -1,111 +1,168 @@
-import StoryOverlay from "@/components/StoryOverlay";
-import { GAME_CONFIG } from "@/components/GameConfig";
 "use client";
-import React, { useState, Suspense, useRef } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera, Float, Text, MeshDistortMaterial, Stars } from "@react-three/drei";
+import React, { useState, useRef, Suspense, useEffect } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { 
+  OrbitControls, PerspectiveCamera, Stars, MeshDistortMaterial, 
+  Float, ContactShadows, Environment, Text
+} from "@react-three/drei";
 import * as THREE from "three";
+import { Cat, Play, Terminal, Shield, Zap, Sparkles } from "lucide-react";
 
-// كائن القطة الثلاثي الأبعاد (Yaoyao)
-function Player({ targetPoint }) {
-  const mesh = useRef();
+// --- نظام القصة (Story Engine) ---
+const StoryOverlay = ({ score }) => {
+  const [msg, setMsg] = useState("INITIALIZING NEON PROTOCOL...");
   
-  useFrame((state) => {
-    if (targetPoint) {
-      // حركة سلسة جداً باتجاه اللمس (Lerp)
-      mesh.current.position.lerp(new THREE.Vector3(targetPoint.x, 0.5, targetPoint.z), 0.1);
+  useEffect(() => {
+    if (score === 0) setMsg("Yaoyao, find the 5 Power Crystals to return home.");
+    if (score === 1) setMsg("System stabilized. Energy levels rising...");
+    if (score === 3) setMsg("Warning: Digital storm approaching. Stay fast!");
+    if (score === 5) setMsg("PORTAL OPEN! Yaoyao is safe. Mission Accomplished.");
+  }, [score]);
+
+  return (
+    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-lg">
+      <div className="bg-black/80 border-t-2 border-cyan-400 p-4 backdrop-blur-xl rounded-t-2xl shadow-[0_-10px_30px_rgba(6,182,212,0.2)]">
+        <div className="flex items-center gap-3 font-mono">
+          <Terminal size={16} className="text-cyan-400 animate-pulse" />
+          <p className="text-cyan-400 text-xs tracking-widest uppercase italic">Mission_Log:</p>
+        </div>
+        <p className="mt-2 text-white font-medium text-sm sm:text-base leading-snug animate-in fade-in slide-in-from-bottom-2">
+          {msg}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// --- اللاعب (Yaoyao - 3D Entity) ---
+function YaoyaoPlayer({ targetPoint }) {
+  const meshRef = useRef();
+  useFrame(() => {
+    if (targetPoint && meshRef.current) {
+      meshRef.current.position.lerp(new THREE.Vector3(targetPoint.x, 0.6, targetPoint.z), 0.15);
+      meshRef.current.rotation.y += 0.05;
     }
   });
 
   return (
-    <mesh ref={mesh} position={[0, 0.5, 0]}>
-      <sphereGeometry args={[0.5, 32, 32]} />
-      <MeshDistortMaterial color="#00ffcc" speed={2} distort={0.4} radius={1} />
-      <pointLight intensity={2} distance={5} color="#00ffcc" />
+    <mesh ref={meshRef} castShadow>
+      <sphereGeometry args={[0.6, 64, 64]} />
+      <MeshDistortMaterial 
+        color="#00f3ff" speed={5} distort={0.4} radius={1} 
+        emissive="#0066ff" emissiveIntensity={1}
+      />
+      <pointLight intensity={2} color="#00f3ff" />
     </mesh>
   );
 }
 
-// الكريستالات المطلوب جمعها
-function Crystal({ position }) {
+// --- الكريستالات (Collectibles) ---
+function Crystal({ position, onCollect }) {
+  const ref = useRef();
+  useFrame((state) => {
+    ref.current.rotation.y += 0.04;
+    ref.current.position.y = position[1] + Math.sin(state.clock.elapsedTime * 2) * 0.2;
+  });
+
   return (
-    <Float speed={5} rotationIntensity={2} floatIntensity={2}>
-      <mesh position={position}>
-        <octahedronGeometry args={[0.3, 0]} />
-        <meshStandardMaterial color="#ff00bb" emissive="#ff00bb" emissiveIntensity={2} />
-      </mesh>
-    </Float>
+    <mesh position={position} ref={ref} onClick={onCollect}>
+      <octahedronGeometry args={[0.4, 0]} />
+      <meshStandardMaterial color="#ff0077" emissive="#ff0077" emissiveIntensity={2} />
+    </mesh>
   );
 }
 
-export default function Yaoyao3D() {
-  const [gameStarted, setGameStarted] = useState(false);
-  const [targetPoint, setTargetPoint] = useState(new THREE.Vector3(0, 0, 0));
+// --- العالم والبيئة (The Digital Void) ---
+function World({ isPlaying, onCollect }) {
+  const [target, setTarget] = useState(new THREE.Vector3(0, 0, 0));
+  const { viewport } = useThree();
 
-  const handlePointerMove = (e) => {
-    if (gameStarted) {
-      // تحويل إحداثيات اللمس إلى عالم 3D
-      const x = (e.clientX / window.innerWidth) * 10 - 5;
-      const z = (e.clientY / window.innerHeight) * 10 - 5;
-      setTargetPoint(new THREE.Vector3(x, 0, z));
-    }
+  const moveHandler = (e) => {
+    if (!isPlaying) return;
+    const x = (e.clientX / window.innerWidth) * 2 - 1;
+    const y = -(e.clientY / window.innerHeight) * 2 + 1;
+    setTarget(new THREE.Vector3(x * viewport.width / 1.5, 0, -y * viewport.height / 1.5));
   };
 
+  useEffect(() => {
+    window.addEventListener('pointermove', moveHandler);
+    return () => window.removeEventListener('pointermove', moveHandler);
+  }, [isPlaying]);
+
   return (
-    <div className="w-full h-screen bg-black overflow-hidden touch-none" onPointerMove={handlePointerMove}>
-      {/* ملحوظة المبرمج */}
-      <div className="absolute top-2 right-4 z-50 text-white/30 text-[10px] font-mono">
-        Made by alkorgli
+    <>
+      <Stars radius={100} depth={50} count={7000} factor={4} saturation={1} fade speed={2} />
+      <ambientLight intensity={0.4} />
+      <spotLight position={[10, 15, 10]} angle={0.3} penumbra={1} castShadow />
+      
+      {isPlaying && (
+        <Suspense fallback={null}>
+          <YaoyaoPlayer targetPoint={target} />
+          <Crystal position={[4, 0.6, -4]} onCollect={onCollect} />
+          <Crystal position={[-5, 0.6, 3]} onCollect={onCollect} />
+          <Crystal position={[0, 0.6, -7]} onCollect={onCollect} />
+          <gridHelper args={[40, 40, "#111", "#00f3ff"]} />
+          <ContactShadows opacity={0.5} scale={20} blur={2.4} />
+        </Suspense>
+      )}
+    </>
+  );
+}
+
+// --- الواجهة الكلية (Main UI) ---
+export default function YaoyaoGrandProject() {
+  const [gameState, setGameState] = useState('menu');
+  const [score, setScore] = useState(0);
+
+  return (
+    <div className="relative w-full h-screen bg-[#020208] text-white select-none overflow-hidden font-sans">
+      {/* Branded Watermark */}
+      <div className="absolute top-4 right-6 z-50 flex items-center gap-2 opacity-40">
+        <Zap size={12} className="text-cyan-400" />
+        <p className="font-mono text-[9px] tracking-[0.2em] uppercase">Made by alkorgli</p>
       </div>
 
-      {!gameStarted ? (
-        // القائمة الرئيسية
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
-          <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-500 mb-8 animate-pulse">
-            YAOYAO 3D
+      {gameState === 'menu' && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-black/0 via-black/80 to-black">
+          <div className="relative mb-8">
+            <div className="absolute inset-0 bg-cyan-500 blur-3xl opacity-20 animate-pulse" />
+            <Cat size={100} className="text-cyan-400 relative z-10" />
+          </div>
+          <h1 className="text-8xl font-black tracking-tighter mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-400 to-fuchsia-500">
+            YAOYAO
           </h1>
+          <p className="text-cyan-500 font-mono tracking-[0.5em] mb-12 text-xs uppercase">Neon Survival Protocol</p>
+          
           <button 
-            onClick={() => setGameStarted(true)}
-            className="px-10 py-4 bg-transparent border-2 border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black transition-all duration-300 font-bold tracking-widest text-xl rounded-full uppercase"
+            onClick={() => setGameState('playing')}
+            className="group relative px-16 py-5 bg-white text-black font-black text-xl rounded-full transition-transform hover:scale-110 active:scale-95 shadow-[0_0_40px_rgba(255,255,255,0.3)]"
           >
-            Start Mission
+            <div className="flex items-center gap-3">
+              <Play fill="black" /> START MISSION
+            </div>
           </button>
-          <p className="mt-6 text-white/50 text-sm italic">Guide the cat through the digital void</p>
-        </div>
-      ) : (
-        // واجهة اللعبة أثناء اللعب
-        <div className="absolute top-10 left-10 z-40 text-cyan-400 font-mono text-xl pointer-events-none">
-          MISSION: COLLECT ENERGY
         </div>
       )}
 
-      {/* محرك الـ 3D */}
-      <Canvas shadows>
-        <PerspectiveCamera makeDefault position={[0, 10, 10]} fov={50} />
-        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-        <ambientLight intensity={0.2} />
-        <pointLight position={[10, 10, 10]} intensity={1.5} />
-        
-        <Suspense fallback={null}>
-          {gameStarted && (
-            <>
-              <Player targetPoint={targetPoint} />
-              <Crystal position={[3, 0.5, -2]} />
-              <Crystal position={[-4, 0.5, 3]} />
-              <Crystal position={[0, 0.5, -5]} />
-              
-              {/* الأرضية النيون */}
-              <gridHelper args={[20, 20, "#222", "#00ffcc"]} />
-              <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-                <planeGeometry args={[20, 20]} />
-                <meshStandardMaterial color="#050505" />
-              </mesh>
-            </>
-          )}
-        </Suspense>
+      {gameState === 'playing' && (
+        <>
+          <div className="absolute top-10 left-10 z-40 space-y-4">
+            <div className="bg-black/60 border-l-4 border-fuchsia-500 p-4 backdrop-blur-md">
+              <p className="text-[10px] text-fuchsia-500 font-bold uppercase tracking-widest">Energy Gained</p>
+              <p className="text-4xl font-black italic">{score * 20}%</p>
+            </div>
+          </div>
+          <StoryOverlay score={score} />
+        </>
+      )}
 
-        <OrbitControls enableZoom={false} maxPolarAngle={Math.PI / 2.5} />
-      </Canvas>
+      <div className="w-full h-full">
+        <Canvas shadows>
+          <PerspectiveCamera makeDefault position={[0, 12, 15]} fov={45} />
+          <World isPlaying={gameState === 'playing'} onCollect={() => setScore(s => Math.min(s + 1, 5))} />
+          <OrbitControls enableZoom={false} maxPolarAngle={Math.PI / 2.2} />
+        </Canvas>
+      </div>
     </div>
   );
 }
